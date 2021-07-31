@@ -7,6 +7,7 @@ from datetime import datetime
 from time import sleep
 import RPi.GPIO as GPIO
 from dragino import Dragino
+from dragino.SX127x.LoRa import MODE
 
 
 GPIO.setwarnings(False)
@@ -22,11 +23,12 @@ while not D.registered():
     print("Waiting for JOIN ACCEPT")
     sleep(2)
 #sleep(10)
-for i in range(0, 2):
-    D.send("Hello World")
-    start = datetime.utcnow()
-    while D.transmitting:
-        pass
-    end = datetime.utcnow()
-    print("Sent Hello World message ({})".format(end-start))
-    sleep(1)
+
+D.send("Hello World")
+start = datetime.utcnow()
+while D.transmitting:
+    pass
+end = datetime.utcnow()
+print("Sent Hello World message ({})".format(end-start))
+
+D.cleanup()

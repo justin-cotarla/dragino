@@ -23,12 +23,12 @@ import os.path
 from configobj import ConfigObj
 from serial import Serial
 import pynmea2
-from .SX127x.LoRa import LoRa, MODE
+from .SX127x.LoRa import LoRa, MODE, BW
 from .SX127x.board_config import BOARD
 from .LoRaWAN import new as lorawan_msg
 from .LoRaWAN import MalformedPacketException
 from .LoRaWAN.MHDR import MHDR
-from .FrequncyPlan import LORA_FREQS, JOIN_FREQS
+from .FrequncyPlan import UPLINK_FREQS, DOWNLINK_FREQS
 
 
 DEFAULT_LOG_LEVEL = logging.WARN #Change after finishing development
@@ -42,7 +42,7 @@ class Dragino(LoRa):
         Class to provide an interface to the dragino LoRa/GPS HAT
     """
     def __init__(
-            self, config_filename, freqs=LORA_FREQS,
+            self, config_filename,
             logging_level=DEFAULT_LOG_LEVEL,
             lora_retries=DEFAULT_RETRIES):
         """
@@ -54,7 +54,6 @@ class Dragino(LoRa):
             format='%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s')
         BOARD.setup()
         super(Dragino, self).__init__(logging_level < logging.INFO)
-        self.freqs = freqs
         #Set all auth method tockens to None as not sure what auth method we'll use
         self.device_addr = None
         self.network_key = None
@@ -62,6 +61,7 @@ class Dragino(LoRa):
         self.appkey = None
         self.appeui = None
         self.deveui = None
+        self.freq_index = None
         self.transmitting = False
         self.config = DraginoConfig(config_filename, logging_level)
         self.lora_retries = lora_retries
@@ -112,13 +112,20 @@ class Dragino(LoRa):
             self.logger.info("downlinkCallback is not callable")
 
 
-    def _choose_freq(self, join=False):
-        if join:
-            available = JOIN_FREQS
-        else:
-            available = LORA_FREQS
-        freq = available[randrange(len(available))]#Pick a random frequency
+    def _choose_freq(self, uplink=False):
+        if self.freq_index is None:
+            self.freq_index = randrange(len(UPLINK_FREQS)) #Pick a random frequency
+
         self.set_mode(MODE.SLEEP)
+
+        if uplink:
+            available = UPLINK_FREQS
+            self.set_bw(BW.BW125) # DR0 (125kHz)
+        else:
+            available = DOWNLINK_FREQS
+            self.set_bw(BW.BW500) # DR10 (500 kHz)
+
+        freq = available[self.freq_index]
         self.set_freq(freq)
         self.logger.info("Frequency = %s", freq)
 
@@ -203,13 +210,14 @@ class Dragino(LoRa):
         """
             Callback on TX complete is signaled using I/O
         """
-        self.logger.debug("TX Complete")
-        self.transmitting = False
         self.clear_irq_flags(TxDone=1)
+        self.logger.debug("TX Complete")
         self.set_mode(MODE.STDBY)
         self.set_dio_mapping([0, 0, 0, 0, 0, 0])
         self.set_invert_iq(1)
         self.reset_ptr_rx()
+        self.transmitting = False
+        self._choose_freq(False)
         self.set_mode(MODE.RXCONT)
 
 
@@ -264,7 +272,7 @@ class Dragino(LoRa):
         if self.network_key is None or self.apps_key is None: # either using ABP / join has  run
             raise DraginoError("No network and/or apps key")
         while attempt <= self.lora_retries: # try a couple of times because of
-            self._choose_freq()
+            self._choose_freq(True)
             attempt += 1 #  intermittent malformed packets nasty hack
             try: #shouldn't be needed
                 lorawan = lorawan_msg(self.network_key, self.apps_key)
@@ -323,6 +331,10 @@ class Dragino(LoRa):
                 break
         # this will be None if no message is decoded, otherwise it'll contain the information
         return msg
+
+    def cleanup(self):
+        self.set_mode(MODE.SLEEP)
+        BOARD.teardown()
 
 class DraginoError(Exception):
     """
