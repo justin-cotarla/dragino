@@ -17,12 +17,19 @@ logLevel=logging.DEBUG
 logging.basicConfig(filename="send_gps.log", format='%(asctime)s - %(funcName)s - %(lineno)d - %(levelname)s - %(message)s', level=logLevel)
 
 D = Dragino("dragino.ini", logging_level=logLevel)
+
+gps = D.get_gps()
+
+if (gps.gps_qual == 0):
+    D.logger.info("No GPS lock, skipping transmission")
+    exit()
+
+
 D.join()
 while not D.registered():
     print("Waiting for JOIN ACCEPT")
     sleep(2)
 
-gps = D.get_gps()
 encoded_gps = encode_gps(gps)
 D.send(encoded_gps)
 start = datetime.utcnow()
